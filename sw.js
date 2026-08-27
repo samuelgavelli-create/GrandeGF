@@ -1,6 +1,6 @@
 /* IL CONTO - service worker offline
    Cambia CACHE quando aggiorni index.html (es. conto-v5-2) */
-const CACHE = 'conto-v5-1';
+const CACHE = 'conto-v5-3';
 const FILES = [
   './',
   './index.html',
