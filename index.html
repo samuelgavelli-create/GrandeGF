@@ -932,6 +932,13 @@ function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||8); }catch(e
 function mins(s,def){ const m=/^(\d{1,2}):(\d{2})$/.exec(String(s||'')); return m?(+m[1]*60+ +m[2]):def; }
 function nowMin(){ const n=new Date(); return n.getHours()*60+n.getMinutes(); }
 function round2(n){ return Math.round(n*100)/100; }
+/* quante unità di una voce sono coperte dai ticket bruciati quel giorno */
+function coveredOn(date,catId){
+  if(!catId) return 0;
+  let n=0;
+  for(const b of (extra.burns||[])) if(b.when===date&&b.covers===catId) n++;
+  return n;
+}
 function freeOf(c,date){
   if(!c||!c.free) return 0;
   /* le franchigie cambiate valgono solo dal giorno del cambio in poi:
@@ -1081,26 +1088,29 @@ function computeDayLines(date){
       continue;
     }
     let amt,lbl=c.em+' '+c.nm.toUpperCase();
+    const cov=Math.min(n,coveredOn(date,c.id));   /* unità pagate dal ticket */
+    const nb=n-cov;                                /* unità che restano da pagare */
     if(c.ladder){
-      amt=sigCost(n);
-      lbl+='  x'+n+(n>2?'  '+eur(amt/n).replace(' €','')+' medi':'');
+      amt=sigCost(nb);
+      lbl+='  x'+n+(nb>2?'  '+eur(amt/nb).replace(' €','')+' medi':'');
     } else if(c.type==='fingers'){
-      amt=price('pellicine')+Math.max(0,n-1)*price('pellicine2');
+      amt=nb?price('pellicine')+Math.max(0,nb-1)*price('pellicine2'):0;
       lbl+='  '+n+(n===1?' dito':' dita');
     } else if(c.type==='level'){
-      amt=price(c.id)+Math.max(0,n-1)*price(c.stepId);
+      amt=nb?price(c.id)+Math.max(0,nb-1)*price(c.stepId):0;
       if(n>1) lbl=c.em+' A LETTO DOPO LE 00:30';
     } else if(c.type==='blocks'){
       const fb=freeBlocks(c), b=blockOf(c);
-      amt=Math.max(0,n-fb)*price(c.id);
+      amt=Math.max(0,nb-fb)*price(c.id);
       lbl+='  '+fmtMin(n*b)+(fb?'  '+fmtMin(Math.min(n,fb)*b)+' gratis':'');
     } else if(c.type==='day'){
-      amt=price(c.id);
+      amt=cov?0:price(c.id);
     } else {
       const fr=freeOf(c,date);
-      amt=Math.max(0,n-fr)*price(c.id);
+      amt=Math.max(0,nb-fr)*price(c.id);
       if(n>1||fr) lbl+='  x'+n+(fr?'  '+Math.min(n,fr)+' gratis':'');
     }
+    if(cov) lbl+='  🎟️ '+(c.type==='day'?'col ticket':cov+' col ticket');
     if(c.amount&&d[c.amount.key]>0){
       const sh=+cfg[c.amount.share]||0;
       amt+=d[c.amount.key]*(sh/100);
@@ -1796,9 +1806,12 @@ function renderMissions(){
       if(g.n>1) slot.appendChild(Object.assign(document.createElement('div'),{className:'pile'}));
       const b=document.createElement('button');
       b.className='tk'; b.type='button';
+      const cv=m.rw.covers&&CATBY[m.rw.covers]?CATBY[m.rw.covers]:null;
       b.innerHTML='<span class="tkem">'+m.rw.em+'</span><span class="tkbody">'+
         '<span class="tkn">'+esc(m.rw.nm)+'</span>'+
-        '<span class="tks">'+esc(m.rw.sub)+(m.rw.value>0?' · fino a '+eur(m.rw.value)+' da '+POCKETS[m.rw.pocket].name:'')+'</span>'+
+        '<span class="tks">'+esc(m.rw.sub)+
+          (cv?' · '+cv.em+' '+esc(cv.nm)+' gratis':'')+
+          (m.rw.value>0?' · fino a '+eur(m.rw.value)+' da '+POCKETS[m.rw.pocket].name:'')+'</span>'+
         '</span>'+(g.n>1?'<span class="tkq">×'+g.n+'</span>':'')+'<span class="tkuse">usa</span>';
       b.addEventListener('click',()=>useTicket(m,slot,b));
       slot.appendChild(b); w.appendChild(slot);
@@ -1876,9 +1889,11 @@ function playBurn(slot,btn){
 
 async function useTicket(m,slot,btn){
   const val=+m.rw.value||0;
+  const cv=m.rw.covers&&CATBY[m.rw.covers]?CATBY[m.rw.covers]:null;
   const r=await ask({
     title:'Usi il ticket '+m.rw.nm+'?',
     body:'<b style="color:var(--chalk)">'+esc(m.rw.sub)+'</b><br>Il ticket brucia e sparisce. Non torna indietro: usalo quando decidi davvero di farlo.'+
+         (cv?'<br><br>'+cv.em+' <b style="color:var(--green)">'+esc(cv.nm)+' di oggi non la paghi.</b>':'')+
          (val>0?'<br><br>Vale fino a '+eur(val)+' dalla cassa '+POCKETS[m.rw.pocket].name+'.':''),
     option: val>0?('Segna '+eur(val)+' come prelievo da '+POCKETS[m.rw.pocket].name):null,
     optionOn: val>0,
@@ -1890,7 +1905,8 @@ async function useTicket(m,slot,btn){
   extra.used=extra.used||{};
   extra.used[m.id]=(extra.used[m.id]||0)+1;
   extra.burns=extra.burns||[];
-  extra.burns.unshift({id:'b'+Date.now(),m:m.id,when:todayStr(),val:drawId?val:0,draw:drawId});
+  extra.burns.unshift({id:'b'+Date.now(),m:m.id,when:todayStr(),val:drawId?val:0,draw:drawId,
+                       covers:cv?cv.id:null});
   if(drawId) draws().push({id:drawId,d:todayStr(),pk:m.rw.pocket,amt:round2(val),
                            why:'Ticket '+m.rw.nm,just:1,back:0,due:nextTenth(todayStr()),paid:null});
   save();
@@ -2243,11 +2259,14 @@ function renderMissionRules(){
       '<div class="rulerow"><div class="em">💶</div><div class="nm">Valore del ticket<em>0 = solo permesso, non tocca le casse</em></div>'+
         '<input type="number" min="0" step="5" class="tiny" data-v="'+idx+'" value="'+(+m.rw.value||0)+'">'+
         '<select data-p="'+idx+'">'+PKORDER.map(p=>'<option value="'+p+'">'+POCKETS[p].name+'</option>').join('')+'</select></div>'+
+      '<div class="rulerow"><div class="em">🎟️</div><div class="nm">Voce che il ticket copre<em>quando lo bruci, quella voce del giorno non la paghi</em></div>'+
+        '<select data-cv="'+idx+'"><option value="">nessuna</option>'+catOpts+'</select></div>'+
       '<div class="row2"><button class="btn ghost" data-on="'+idx+'">'+(m.on===0?'Riaccendi':'Spegni')+'</button>'+
         (m.custom?'<button class="btn warn" data-x="'+idx+'">Elimina</button>':'')+'</div>';
     const cs=d.querySelector('[data-c]'); if(cs) cs.value=m.cat||'fuori';
     const ks=d.querySelector('[data-k]'); if(ks) ks.value=m.kind;
     const ps=d.querySelector('[data-p]'); if(ps) ps.value=m.rw.pocket;
+    const vs=d.querySelector('[data-cv]'); if(vs) vs.value=m.rw.covers||'';
     w.appendChild(d);
   });
   w.querySelectorAll('[data-k]').forEach(el=>el.addEventListener('change',()=>{
@@ -2267,6 +2286,9 @@ function renderMissionRules(){
   }));
   w.querySelectorAll('[data-p]').forEach(el=>el.addEventListener('change',()=>{
     missions()[+el.dataset.p].rw.pocket=el.value; save(); renderAll(); renderRules();
+  }));
+  w.querySelectorAll('[data-cv]').forEach(el=>el.addEventListener('change',()=>{
+    missions()[+el.dataset.cv].rw.covers=el.value||null; save(); renderAll(); renderRules();
   }));
   w.querySelectorAll('[data-on]').forEach(el=>el.addEventListener('click',()=>{
     const m=missions()[+el.dataset.on]; m.on=(m.on===0)?1:0; save(); renderAll(); renderRules();
