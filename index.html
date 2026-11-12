@@ -6491,6 +6491,8 @@ $('exportBtn').addEventListener('click',async()=>{
 });
 $('exportFile').addEventListener('click',async()=>{
   const name='il-conto-'+todayStr()+'.json';
+  /* app Android: il file va dritto nella cartella Download */
+  try{ if(window.ContoBridge&&ContoBridge.saveFile&&ContoBridge.saveFile(name,backupText())){ toast('Backup salvato in Download'); return; } }catch(e){}
   let dl=null;
   try{ if(window.claude&&window.claude.use) dl=await window.claude.use('downloads'); }catch(e){}
   if(dl){
@@ -7752,6 +7754,63 @@ function injectHomeIcon(){
  }finally{
   window.__contoReady=true;
  }
+})();
+</script>
+
+<script>
+/* ============================================================
+   PONTE CON IL WIDGET ANDROID
+   Esiste solo dentro l'app Android (window.ContoBridge). Nel browser non fa nulla.
+   - quello che tocchi sul widget (dita, bicchieri) entra nel conto appena l'app torna davanti
+   - a ogni salvataggio il widget riceve la giornata di oggi
+   ============================================================ */
+(function(){
+  const B=window.ContoBridge;
+  if(!B||typeof B.drain!=='function') return;
+  function pull(){
+    let arr=[]; try{ arr=JSON.parse(B.drain()||'[]'); }catch(e){ arr=[]; }
+    let ch=false;
+    for(const e of arr){
+      if(!e||!/^\d{4}-\d\d-\d\d$/.test(e.date)) continue;
+      const d=log[e.date]||(log[e.date]={});
+      if(e.pell!=null){
+        const v=Math.max(0,Math.min(10,Math.round(+e.pell)||0));
+        if((+d.pellicine||0)!==v){ if(v) d.pellicine=v; else delete d.pellicine; ch=true; }
+      }
+      if(e.acqua!=null){
+        const v=Math.max(0,Math.min(WMAX,Math.round(+e.acqua)||0));
+        if((+d.acqua||0)!==v){ if(v) d.acqua=v; else delete d.acqua; ch=true; }
+      }
+      if(!Object.keys(d).length) delete log[e.date];
+    }
+    return ch;
+  }
+  function push(){
+    try{
+      const t=todayStr(), d=log[t]||{};
+      B.push(JSON.stringify({date:t,pell:+d.pellicine||0,acqua:waterOf(t),goal:wGoal(t),min:wMin(t)}));
+    }catch(e){}
+  }
+  /* ogni salvataggio: prima raccolgo i tocchi del widget, poi gli rimando la giornata */
+  const persist0=persist;
+  persist=function(){
+    let ch=false; try{ ch=pull(); }catch(e){}
+    const ok=persist0();
+    push();
+    if(ch) try{ renderAll(); }catch(e){}
+    return ok;
+  };
+  function sync(){
+    if(!window.__contoReady) return;
+    let ch=false; try{ ch=pull(); }catch(e){}
+    if(ch){ save(); try{ renderAll(); }catch(e){} try{ toast('Widget: giornata aggiornata'); }catch(e){} }
+    else push();
+  }
+  window.__contoSync=sync;
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) sync(); });
+  const w=setInterval(()=>{ if(window.__contoReady){ clearInterval(w); sync(); } },150);
+  /* dentro l'app Android copia e backup passano dal telefono */
+  try{ if(navigator.clipboard&&B.copy) navigator.clipboard.writeText=t=>B.copy(String(t))?Promise.resolve():Promise.reject(new Error('copy')); }catch(e){}
 })();
 </script>
 
