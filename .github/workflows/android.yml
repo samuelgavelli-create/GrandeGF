@@ -1,0 +1,41 @@
+name: APK Android
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.CHIAVE_APP != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sorgenti
+        run: cd android && unzip -o -q src.zip
+      - name: Compila
+        run: bash android/build.sh
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.${{ github.run_number }}
+          CHIAVE_APP: ${{ secrets.CHIAVE_APP }}
+      - name: Pubblica APK
+        if: env.HAS_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete app --cleanup-tag -y || true
+          sleep 3
+          gh release create app android/out/il-conto.apk --latest \
+            --title "IL CONTO per Android (1.${{ github.run_number }})" \
+            --notes "App Android di IL CONTO con il widget delle pellicine e dell'acqua. Scarica il-conto.apk dal telefono e installalo."
