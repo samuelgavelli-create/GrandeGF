@@ -17,8 +17,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      HAS_KEY: ${{ secrets.CHIAVE_APP != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Sorgenti
@@ -30,7 +28,6 @@ jobs:
           VERSION_NAME: 1.${{ github.run_number }}
           CHIAVE_APP: ${{ secrets.CHIAVE_APP }}
       - name: Pubblica APK
-        if: env.HAS_KEY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,4 +35,4 @@ jobs:
           sleep 3
           gh release create app android/out/il-conto.apk --latest \
             --title "IL CONTO per Android (1.${{ github.run_number }})" \
-            --notes "App Android di IL CONTO con il widget delle pellicine e dell'acqua. Scarica il-conto.apk dal telefono e installalo."
+            --notes "App Android di IL CONTO con il widget delle pellicine e dell'acqua. Scarica il-conto.apk dal telefono e installalo. La pagina di IL CONTO si aggiorna da sola dal sito: questo APK va reinstallato solo quando cambia il widget."
